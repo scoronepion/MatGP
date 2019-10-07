@@ -7,13 +7,20 @@ if __name__ == '__main__':
     X = data[:, 0].reshape(-1, 1)
     Y = data[:, 1].reshape(-1, 1)
 
+    # 内核函数
+    # Matern52 内核具有两个参数：lengthscales（编码GP的“摆动”）
+    # variance(方差，用于调整振幅)，默认值为1
     k = gpflow.kernels.Matern52(input_dim=1)
+    # 均值函数
     meanf = gpflow.mean_functions.Linear()
 
+    # 构建 GPR 模型
     m = gpflow.models.GPR(X, Y, kern=k, mean_function=None)
     m.likelihood.variance = 0.01
     m.kern.lengthscales = 0.3
 
+    # 优化器使用 ScipyOptimizer, 其默认情况下使用 L-BFGS-B 算法
+    # 还可参考 MCMC 算法
     opt = gpflow.train.ScipyOptimizer()
     opt.minimize(m)
     print(m.as_pandas_table())

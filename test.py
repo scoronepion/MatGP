@@ -3,14 +3,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 if __name__ == '__main__':
-    data = np.genfromtxt('data/regression_1D.csv', delimiter=',')
-    X = data[:, 0].reshape(-1, 1)
-    Y = data[:, 1].reshape(-1, 1)
+    data = np.genfromtxt('data/regression_2D.csv', delimiter=',')
+    X = data[:, 0:2].reshape(-1, 2)
+    Y = data[:, -1].reshape(-1, 1)
 
     # 内核函数
     # Matern52 内核具有两个参数：lengthscales（编码GP的“摆动”）
     # variance(方差，用于调整振幅)，默认值为1
-    k = gpflow.kernels.Matern52(input_dim=1)
+    k = gpflow.kernels.Matern52(input_dim=2)
     # 均值函数
     meanf = gpflow.mean_functions.Linear()
 
@@ -26,7 +26,7 @@ if __name__ == '__main__':
     print(m.as_pandas_table())
 
     ## generate test points for prediction
-    xx = np.linspace(-0.1, 1.1, 100).reshape(100, 1)  # test points must be of shape (N, D)
+    xx = np.linspace(-0.1, 1.1, 100).reshape(50, 2)  # test points must be of shape (N, D)
 
     ## predict mean and variance of latent GP at test points
     mean, var = m.predict_f(xx)
@@ -36,8 +36,8 @@ if __name__ == '__main__':
 
     ## plot 
     plt.figure(figsize=(12, 6))
-    plt.plot(X, Y, 'kx', mew=2)
-    plt.plot(xx, mean, 'C0', lw=2)
+    plt.plot(X[:,0], Y, 'kx', mew=2)
+    plt.plot(xx[:,0], mean, 'C0', lw=2)
     plt.fill_between(xx[:,0],
                     mean[:,0] - 1.96 * np.sqrt(var[:,0]),
                     mean[:,0] + 1.96 * np.sqrt(var[:,0]),

@@ -150,7 +150,23 @@ class GPCurvesReader(object):
         )
 
 # 工具方法
-def batch_mlp(input, output_size, variable_scope):
+def batch_mlp(input, output_sizes, variable_scope):
     '''
     input: [B, n, d_in]
-    output_size
+    output_sizes: 定义输出大小
+    variable_scope: 变量作用域
+    返回：[B, n, d_out], d_out=output_sizes[-1]
+    '''
+    batch_size, _, filter_size = input.shape.as_list()
+    output = tf.reshape(input, (-1, filter_size))
+    output.set_shape((None, filter_size))
+
+    # MLP
+    with tf.variable_scope(variable_scope, reuse=tf.AUTO_REUSE):
+        for i, size in enumerate(output_sizes[:-1]):
+            output = tf.nn.relu(tf.layers.dense(output, size, name="layer_{}".format(i)))
+        # 最后一层不经过 relu
+        output = tf.layers.dense(output, output_sizes[-1], name="layer_{}".format(i + 1))
+
+    output = tf.reshape(output, (batch_size, -1, output_sizes[-1]))
+    return output

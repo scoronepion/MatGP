@@ -169,4 +169,27 @@ def batch_mlp(input, output_sizes, variable_scope):
         output = tf.layers.dense(output, output_sizes[-1], name="layer_{}".format(i + 1))
 
     output = tf.reshape(output, (batch_size, -1, output_sizes[-1]))
+    
     return output
+
+class DeterministicEncoder(object):
+    '''确定路径编码器'''
+    def __init__(self, output_sizes, attention):
+        self._output_size = output_sizes
+        self._attention = attention
+
+    def __call__(self, context_x, context_y, target_x):
+        '''
+        context_x: [B, observations, d_x]
+        context_y: [B, observations, d_y]
+        target_x: [B, target_observations, d_x]
+        返回: [B, target_observations, d]
+        '''
+        encoder_input = tf.concat([context_x, context_y], axis=-1)
+        hidden = batch_mlp(encoder_input, self._output_size, "deterministic_encoder")
+
+        # attention
+        with tf.variable_scope("deterministic_encoder", reuse=tf.AUTO_REUSE):
+            hidden = self._attention(context_x, target_x, hidden)
+        
+        return hidden

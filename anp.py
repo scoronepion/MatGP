@@ -169,7 +169,7 @@ def batch_mlp(input, output_sizes, variable_scope):
         output = tf.layers.dense(output, output_sizes[-1], name="layer_{}".format(i + 1))
 
     output = tf.reshape(output, (batch_size, -1, output_sizes[-1]))
-    
+
     return output
 
 class DeterministicEncoder(object):
@@ -193,3 +193,32 @@ class DeterministicEncoder(object):
             hidden = self._attention(context_x, target_x, hidden)
         
         return hidden
+
+class LatentEncoder(object):
+    '''计算高斯分布p(z|s_c)'''
+    def __init__(self, output_sizes, num_latents):
+        self._output_size = output_sizes
+        self._num_latents = num_latents
+
+    def __call__(self, x, y):
+        '''
+        x: [B, observations, d_x]
+        y: [B, observations, d_y]
+        返回: 正态分布 [B, num_latents]
+        '''
+        encoder_input = tf.concat([x, y], axis=-1)
+        # MLP
+        hidden = batch_mlp(encoder_input, self._output_sizes, "latent_encoder")
+        # 所有点取平均
+        hidden = tf.reduce_mean(hidden, axis=1)
+        # 添加 MLP 来映射高斯隐变量参数
+        with tf.variable_scope("latten_encoder", reuse=tf.AUTO_REUSE):
+            # relu
+            hidden = tf.nn.relu(tf.layers.dense(hidden, (self._output_size[-1] + self._num_latents)/2, name="penultimate_layer"))
+            # 均值
+            mu = tf.layer.dense(hidden, self._num_latents, name="mean_layer")
+            log_sigma = tf.layer.dense(hidden, self._num_latents, name="std_layer")
+        
+        sigma = 0.1 + 0.9 * tf.sigmoid(log_sigma)
+
+        return tf.contrib.distributions.Normal(loc=mu, scale=sigma)

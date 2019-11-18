@@ -208,7 +208,7 @@ class LatentEncoder(object):
         '''
         encoder_input = tf.concat([x, y], axis=-1)
         # MLP
-        hidden = batch_mlp(encoder_input, self._output_sizes, "latent_encoder")
+        hidden = batch_mlp(encoder_input, self._output_size, "latent_encoder")
         # 所有点取平均
         hidden = tf.reduce_mean(hidden, axis=1)
         # 添加 MLP 来映射高斯隐变量参数
@@ -216,9 +216,30 @@ class LatentEncoder(object):
             # relu
             hidden = tf.nn.relu(tf.layers.dense(hidden, (self._output_size[-1] + self._num_latents)/2, name="penultimate_layer"))
             # 均值
-            mu = tf.layer.dense(hidden, self._num_latents, name="mean_layer")
-            log_sigma = tf.layer.dense(hidden, self._num_latents, name="std_layer")
+            mu = tf.layers.dense(hidden, self._num_latents, name="mean_layer")
+            log_sigma = tf.layers.dense(hidden, self._num_latents, name="std_layer")
         
         sigma = 0.1 + 0.9 * tf.sigmoid(log_sigma)
 
         return tf.contrib.distributions.Normal(loc=mu, scale=sigma)
+
+class Decoder(object):
+    def __init__(self, output_size):
+        self._output_size = output_size
+
+    def __call__(self, representation, target_x):
+        '''
+        representation: [B, target_observations, ?] The representation of the context for target predictions. 
+        target_x: [B, target_observations, d_x]
+        返回: dist: target_x上的多元高斯分布, shape 为 [B, target_observations, d_y] 的分布
+              mu: [B, target_observations, d_x], 多元高斯分布的均值
+              sigma: [B, target_observations, d_x], 多元高斯分布标准差
+        '''
+        hidden = tf.concat([representation, target_x], axis=-1)
+        hidden = batch_mlp(hidden, self._output_size, "decoder")
+        # 求均值与方差
+        mu, log_sigma = tf.split(hidden, 2, axis=-1)
+        sigma = 0.1 + 0.9 * tf.nn.softplus(log_sigma)
+        dist = tf.contrib.distributions.MultivariateNormalDiag(loc=mu, scale_diag=sigma)
+
+        return dist, mu, sigma

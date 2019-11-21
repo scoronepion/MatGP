@@ -341,3 +341,80 @@ def laplace_attention(q, k, v, scale, normalise):
     weights = weight_fn(unnorm_weights)  # [B, m, n]
     rep = tf.einsum('bik,bkj->bij', weights, v)  # [B, m, d_v]
     return rep
+
+def dot_product_attention(q, k, v, normalise):
+    '''
+    q: queries, [B, m, d_k]
+    k: keys, [B, n, d_k]
+    v: values, [B, n, d_v]
+    scale: float, 缩放欧式距离
+    normalise: boolean
+    返回: [B, m, d_v]
+    '''
+    d_k = tf.shape(q)[-1]
+    scale = tf.sqrt(tf.cast(d_k, tf.float32))
+    unnorm_weights = tf.einsum('bjk,bik->bij', k, q) / scale  # [B, m, n]
+    if (normalise):
+        weight_fn = tf.nn.softmax
+    else:
+        weight_fn = tf.sigmoid
+    weights = weight_fn(unnorm_weights)  # [B, m, n]
+    rep = tf.einsum('bik,bkj->bij', weights, v)  # [B, m, d_v]
+    return rep
+
+def multihead_attention(q, k, v, num_heads=8):
+    '''
+    q: queries, [B, m, d_k]
+    k: keys, [B, n, d_k]
+    v: values, [B, n, d_v]
+    num_heads: 头数，需要能除尽 d_v
+    返回: [B, m, d_v]
+    '''
+    d_k = q.get_shape().as_list()[-1]
+    d_v = v.get_shape().as_list()[-1]
+    head_size = d_v / num_heads
+    # stddev: 随机值的标准差
+    key_initializer = tf.random_normal_initializer(stddev=d_k**-0.5)
+    value_initializer = tf.random_normal_initializer(stddev=d_v**-0.5)
+    rep = tf.constant(0.0)
+    for h in range(num_heads):
+        o = dot_product_attention(
+            tf.layers.Conv1D(head_size, 1, kernel_initializer=key_initializer, name='wq%d' % h, use_bias=False, padding='VALID')(q),
+            tf.layers.Conv1D(head_size, 1, kernel_initializer=key_initializer, name='wk%d' % h, use_bias=False, padding='VALID')(k),
+            tf.layers.Conv1D(head_size, 1, kernel_initializer=key_initializer, name='wv%d' % h, use_bias=False, padding='VALID')(v),
+            normalise=True
+        )
+        rep += tf.layers.Conv1D(d_v, 1, kernel_initializer=value_initializer, name='wo%d' % h, use_bias=False, padding='VALID')(o)
+
+    return rep
+
+class Attention(object):
+    def __init__(self, rep, output_sizes, att_type, scale=1., normalise=True, num_heads=8):
+        '''
+        创建注意力模型
+        (水平有限，翻译成中文后实在狗屁不通，此处开始，选择性翻译)
+        Takes in context inputs, target inputs and
+        representations of each context input/output pair
+        to output an aggregated representation of the context data.
+        Args:
+            rep: transformation to apply to contexts before computing attention.
+                one of ['identity', 'mlp']
+            output_sizes: list of number of hidden units per layer of mlp.
+                Used only if rep == 'mlp'.
+            att_type: type of attention. One of the following:
+                ['uniform','laplace','dot_product','multihead']
+            scale: scale of attention.
+            normalise: Boolean determining whether to:
+                1. apply softmax to weights so that they sum to 1 across context pts or
+                2. apply custom transformation to have weights in [0,1].
+            num_heads: number of heads for multihead.
+        '''
+        self._rep = rep
+        self._output_sizes = output_sizes
+        self._type = att_type
+        self._scale = scale
+        self._normalise = normalise
+        if self._type == 'multihead':
+            self._num_heads = num_heads
+
+    

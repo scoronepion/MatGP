@@ -243,3 +243,101 @@ class Decoder(object):
         dist = tf.contrib.distributions.MultivariateNormalDiag(loc=mu, scale_diag=sigma)
 
         return dist, mu, sigma
+
+class LatentModel(object):
+    def __init__(self, latent_encoder_output_sizes, num_latents,
+                decoder_output_sizes, use_deterministic_path=True,
+                deterministic_encoder_output_sizes=None, attention=None):
+        '''
+        初始化模型
+        num_latents: 隐变量维度
+        decoder_output_sizes: 最后一个元素应该为 d_y * 2 因为需要 concat 均值与方差
+        deterministic_encoder_output_sizes: 最后一个元素应为 deterministic representation r 的尺寸
+        '''
+        self._latent_encoder = LatentEncoder(latent_encoder_output_sizes, num_latents)
+        self._decoder = Decoder(decoder_output_sizes)
+        self._use_deterministic_path = use_deterministic_path
+        if use_deterministic_path:
+            self._deterministic_encoder = DeterministicEncoder(deterministic_encoder_output_sizes, attention)
+
+    def __call__(self, query, num_targets, target_y=None):
+        '''
+        返回在 target 点上的预测均值和方差
+        query: ((context_x, context_y), target_x)
+                context_x: [B, num_contexts, d_x]
+                context_y: [B, num_contexts, d_y]
+                target_x: [B, num_targets, d_x]
+        num_targets: target 点数量
+        target_y: target_x 的真实对应 y 值 [B, num_targets, d_y]
+        返回: 
+            log_p: 预测 y 的 log 概率, [B, num_targets]
+            mu: 预测分布的均值, [B, num_targets, d_y]
+            sigma: 预测分布的方差, [B, num_targets, d_y]
+        '''
+        (context_x, context_y), target_x = query
+
+        # 将 query 输入 encoder 和 decoder
+        prior = self._latent_encoder(context_x, context_y)
+
+        # 测试过程中，无 target_y，将 context 输入 latent encoder 中
+        if target_y is None:
+            latent_rep = prior.sample()
+        else:
+            # 训练过程中，有 target_y，将其输入 latent encoder 中
+            posterior = self._latent_encoder(target_x, target_y)
+            latent_rep = posterior.sample()
+        
+        latent_rep = tf.tile(tf.expand_dims(latent_rep, axis=1), [1, num_targets, 1])
+        if self._use_deterministic_path:
+            deterministic_rep = self._deterministic_encoder(context_x, context_y, target_x)
+            representation = tf.concat([deterministic_rep, latent_rep], axis=-1)
+        else:
+            representation = latent_rep
+
+        dist, mu, sigma = self._decoder(representation, target_x)
+
+        # 训练过程中，为了计算 log 概率，需要用到 target_y。测试时，没有 target_y，所以返回 None
+        if target_y is not None:
+            log_p = dist.log_prob(target_y)
+            posterior = self._latent_encoder(target_x, target_y)
+            kl = tf.reduce_sum(tf.contrib.distuibutions.kl_divergence(posterior, prior), axis=-1, keepdims=True)
+            kl = tf.tile(kl, [1, num_targets])
+            loss = -tf.reduce_mean(log_p - kl / tf.cast(num_targets, tf.float32))
+        else:
+            log_p = None
+            kl = None
+            loss = None
+
+        return mu, sigma, log_p, kl, loss
+
+def uniform_attention(q, v):
+    '''
+    q: queries, [B, m, d_k]
+    v: values, [B, n, d_v]
+    返回: [B, m, d_v]
+    '''
+    total_points = tf.shape(q)[1]
+    rep = tf.reduce_mean(v, axis=1, keepdims=True)  # [B, 1, d_v]
+    rep = tf.tile(rep, [1, total_points, 1])
+    return rep
+
+def laplace_attention(q, k, v, scale, normalise):
+    '''
+    q: queries, [B, m, d_k]
+    k: keys, [B, n, d_k]
+    v: values, [B, n, d_v]
+    scale: float, 缩放欧式距离
+    normalise: boolean
+    返回: [B, m, d_v]
+    '''
+    k = tf.expand_dims(k, axis=1)  # [B, 1, n, d_k]
+    q = tf.expand_dims(q, axis=2)  # [B. m, 1, d_k]
+    unnorm_weights = -tf.abs((k - q) / scale)  # [B, m, n, d_k]
+    unnorm_weights = tf.reduce_sum(unnorm_weights, axis=-1)  # [B, m, n]
+    if normalise:
+        weight_fn = tf.nn.softmax
+    else:
+        weight_fn = lambda x: 1 + tf.tanh(x)
+    weights = weight_fn(unnorm_weights)  # [B, m, n]
+    rep = tf.einsum('bik,bkj->bij', weights, v)  # [B, m, d_v]
+    return rep

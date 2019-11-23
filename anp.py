@@ -3,6 +3,8 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 import collections
+import argparse
+from tensorflow.python import debug as tf_debug
 
 # 数据生成
 # ANP 接受可命名元组 NPRegressionDescription 作为输入，其中包括
@@ -66,7 +68,7 @@ class GPCurvesReader(object):
         # [B, y_size, num_total_points, num_total_points, x_size]
         norm = tf.square(diff[:, None, :, :, :] / l1[:, :, None, None, :])
 
-        # [B, y_size, num_total_points, num_total_points]
+        # [B, y_size, num_total_points, num_total_points]++
         # 按照最后一个维度求和
         norm = tf.reduce_sum(norm, -1)
 
@@ -86,7 +88,7 @@ class GPCurvesReader(object):
         返回：NPRegressionDescription 命名元组
         '''
         # 从均匀分布中随机采样
-        num_context = tf.random_uniform(shape=[], minval=3, maxval=self._max_num_context, dtype="tf.int32")
+        num_context = tf.random_uniform(shape=[], minval=3, maxval=self._max_num_context, dtype=tf.int32)
 
         # 测试过程中，生成更多的点以绘制图像
         if self._testing:
@@ -300,7 +302,7 @@ class LatentModel(object):
         if target_y is not None:
             log_p = dist.log_prob(target_y)
             posterior = self._latent_encoder(target_x, target_y)
-            kl = tf.reduce_sum(tf.contrib.distuibutions.kl_divergence(posterior, prior), axis=-1, keepdims=True)
+            kl = tf.reduce_sum(tf.contrib.distributions.kl_divergence(posterior, prior), axis=-1, keepdims=True)
             kl = tf.tile(kl, [1, num_targets])
             loss = -tf.reduce_mean(log_p - kl / tf.cast(num_targets, tf.float32))
         else:
@@ -417,4 +419,144 @@ class Attention(object):
         if self._type == 'multihead':
             self._num_heads = num_heads
 
+    def __call__(self, x1, x2, r):
+        """Apply attention to create aggregated representation of r.
+
+        Args:
+            x1: tensor of shape [B,n1,d_x].
+            x2: tensor of shape [B,n2,d_x].
+            r: tensor of shape [B,n1,d].
+        
+        Returns:
+            tensor of shape [B,n2,d]
+
+        Raises:
+            NameError: The argument for rep/type was invalid.
+        """
+        if self._rep == 'identity':
+            k, q = (x1, x2)
+        elif self._rep == 'mlp':
+            k = batch_mlp(x1, self._output_sizes, "attention")
+            q = batch_mlp(x2, self._output_sizes, "attention")
+        else:
+            raise NameError("'rep' not among ['identity', 'mlp']")
+
+        if self._type == 'uniform':
+            rep = uniform_attention(q, r)
+        elif self._type == 'laplace':
+            rep = laplace_attention(q, k, r, self._scale, self._normalise)
+        elif self._type == 'dot_product':
+            rep = dot_product_attention(q, k, r, self._normalise)
+        elif self._type == 'multihead':
+            rep = multihead_attention(q, k, r, self._num_heads)
+        else:
+            raise NameError(("'att_type' not among ['uniform', 'laplace', 'dot_product', 'multihead']"))
+
+        return rep
+
+def plot_functions(target_x, target_y, context_x, context_y, pred_y, std):
+    """Plots the predicted mean and variance and the context points.
+
+    Args: 
+    target_x: An array of shape [B,num_targets,1] that contains the
+        x values of the target points.
+    target_y: An array of shape [B,num_targets,1] that contains the
+        y values of the target points.
+    context_x: An array of shape [B,num_contexts,1] that contains 
+        the x values of the context points.
+    context_y: An array of shape [B,num_contexts,1] that contains 
+        the y values of the context points.
+    pred_y: An array of shape [B,num_targets,1] that contains the
+        predicted means of the y values at the target points in target_x.
+    std: An array of shape [B,num_targets,1] that contains the
+        predicted std dev of the y values at the target points in target_x.
+    """
+    # Plot everything
+    plt.plot(target_x[0], pred_y[0], 'b', linewidth=2)
+    plt.plot(target_x[0], target_y[0], 'k:', linewidth=2)
+    plt.plot(context_x[0], context_y[0], 'ko', markersize=10)
+    plt.fill_between(
+        target_x[0, :, 0],
+        pred_y[0, :, 0] - std[0, :, 0],
+        pred_y[0, :, 0] + std[0, :, 0],
+        alpha=0.2,
+        facecolor='#65c9f7',
+        interpolate=True)
+
+    # Make the plot pretty
+    plt.yticks([-2, 0, 2], fontsize=16)
+    plt.xticks([-2, 0, 2], fontsize=16)
+    plt.ylim([-2, 2])
+    plt.grid('off')
+    ax = plt.gca()
+    plt.show()
+
+class Hparams:
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--TRAINING_ITERATIONS', default=100000, type=int)
+    parser.add_argument('--MAX_CONTEXT_POINTS', default=50, type=int)
+    parser.add_argument('--PLOT_AFTER', default=10, type=int)
+    parser.add_argument('--HIDDEN_SIZE', default=128, type=int)
+    parser.add_argument('--MODEL_TYPE', default='ANP')
+    parser.add_argument('--ATTENTION_TYPE', default='multihead')
+    parser.add_argument('--random_kernel_parameters', default=True)
+
+def train():
+    # 载入超参数
+    hp = Hparams().parser.parse_args()
     
+    tf.reset_default_graph()
+    # 训练集
+    dataset_train = GPCurvesReader(batch_size=16, max_num_context=hp.MAX_CONTEXT_POINTS, random_kernel_parameters=hp.random_kernel_parameters)
+    data_train = dataset_train.generate_curves()
+
+    # 测试集
+    dataset_test = GPCurvesReader(batch_size=1, max_num_context=hp.MAX_CONTEXT_POINTS, testing=True, random_kernel_parameters=hp.random_kernel_parameters)
+    data_test = dataset_test.generate_curves()
+
+    # with tf.Session() as sess:
+    #     (context_x, context_y), target_x = sess.run(data_train).query
+    #     print(context_x.shape)
+
+
+    # 定义隐层参数
+    latent_encoder_output_sizes = [hp.HIDDEN_SIZE]*4
+    num_latents = hp.HIDDEN_SIZE
+    deterministic_encoder_output_sizes= [hp.HIDDEN_SIZE]*4
+    decoder_output_sizes = [hp.HIDDEN_SIZE]*2 + [2]
+    use_deterministic_path = True
+
+    # attention
+    attention = Attention(rep='mlp', output_sizes=[hp.HIDDEN_SIZE]*2, att_type=hp.ATTENTION_TYPE)
+
+    # 定义模型
+    model = LatentModel(latent_encoder_output_sizes, num_latents, decoder_output_sizes, use_deterministic_path, deterministic_encoder_output_sizes, attention)
+
+    # 定义损失
+    _, _, log_prob, _, loss = model(data_train.query, data_train.num_total_points, data_train.target_y)
+
+    # 测试集上的预测均值与方差
+    mu, sigma, _, _, _ = model(data_test.query, data_test.num_total_points)
+
+    # 优化器与训练步骤
+    optimizer = tf.train.AdamOptimizer(1e-4)
+    train_step = optimizer.minimize(loss)
+    init = tf.global_variables_initializer()
+
+    with tf.Session() as sess:
+        # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+        sess.run(init)
+
+        for it in range(hp.TRAINING_ITERATIONS):
+            sess.run([train_step])
+
+            # 画图
+            if it % hp.PLOT_AFTER == 0:
+                loss_value, pred_y, std_y, target_y, whole_query = sess.run([loss, mu, sigma, data_test.target_y, data_test.query])
+                (context_x, context_y), target_x = whole_query
+                print('Iteration: {}, loss: {}'.format(it, loss_value))
+
+                # plot_functions(target_x, target_y, context_x, context_y, pred_y, std_y)
+
+train()

@@ -24,7 +24,7 @@ class GPCurvesReader(object):
     def __init__(self,
                 batch_size,
                 max_num_context,
-                x_size=1,
+                x_size=2,
                 y_size=1,
                 l1_scale=0.6,
                 sigma_scale=1.0,
@@ -92,12 +92,13 @@ class GPCurvesReader(object):
 
         # 测试过程中，生成更多的点以绘制图像
         if self._testing:
-            num_target = 400
+            num_target = tf.cast(400 / self._x_size, dtype=tf.int32)
             num_total_points = num_target
             # tf.tile: 在同一维度上复制
             # 生成 -2. 到 2. 的步长为 0.01 的数据
             x_values = tf.tile(tf.expand_dims(tf.range(-2., 2., 1. / 100, dtype=tf.float32), axis=0), [self._batch_size, 1])
             x_values = tf.expand_dims(x_values, axis=-1)
+            x_values = tf.reshape(x_values, (self._batch_size, num_total_points, self._x_size))
         else:
             # 训练过程中，随机选择目标点个数与他们的 x 坐标
             num_target = tf.random_uniform(shape=(), minval=0, maxval=self._max_num_context - num_context, dtype=tf.int32)

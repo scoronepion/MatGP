@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import collections
 import argparse
+import predata
 from tensorflow.python import debug as tf_debug
 
 # 数据生成
@@ -510,6 +511,7 @@ def train():
     hp = Hparams().parser.parse_args()
     
     tf.reset_default_graph()
+
     # 训练集
     dataset_train = GPCurvesReader(batch_size=16, max_num_context=hp.MAX_CONTEXT_POINTS, random_kernel_parameters=hp.random_kernel_parameters)
     data_train = dataset_train.generate_curves()
@@ -521,7 +523,6 @@ def train():
     # with tf.Session() as sess:
     #     (context_x, context_y), target_x = sess.run(data_train).query
     #     print(context_x.shape)
-
 
     # 定义隐层参数
     latent_encoder_output_sizes = [hp.HIDDEN_SIZE]*4

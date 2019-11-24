@@ -11,26 +11,47 @@ import collections
 #  `num_total_points`: 所有使用过的数据点 (context + target)
 #  `num_context_points`: context 数量
 # GPCurvesReader 每次循环以此格式返回新采样数据
+ANPRegressionDescription = collections.namedtuple("NPRegressionDescription", ("query", "target_y", "num_total_points", "num_context_points"))
+
 def dataset(train_batch, test_batch):
-    ANPRegressionDescription = collections.namedtuple("NPRegressionDescription", ("query", "target_y", "num_total_points", "num_context_points"))
-
     raw = pd.read_csv('./data/fatigue.csv')
-    # 训练数据个数必须被 batch_size 除尽
-    train, test = train_test_split(raw, test_size=0.45)
+    # random shuffle
+    raw = raw.sample(frac=1).reset_index(drop=True)
+    # 训练集与测试集
+    train = raw[:304]
+    test = raw[304:]
+    train_data = descriptor(train, train_batch, training=True)
+    test_data = descriptor(test, test_batch, training=False)
+    return train_data, test_data
 
-    context_x = train.loc[:, raw.columns != 'Fatigue'].values
-    context_y = train.loc[:, ['Fatigue']].values
-    target_x = test.loc[:, raw.columns != 'Fatigue'].values
-    target_y = test.loc[:, ['Fatigue']].values
+def descriptor(data, batch_size, training=True):
+    '''
+    将 data 转换成 ANPRegressionDescription
+    '''
+    if training:
+        # context [16, 10, size]
+        # target [16, 9, size]
+        context = data[:160]
+        target = data[160:]
+    else:
+        # context [1, 67, size]
+        # target [1, 66, size]
+        context = data[:67]
+        target = data[67:]
+
+    context_x = context.loc[:, data.columns != 'Fatigue'].values
+    context_y = context.loc[:, ['Fatigue']].values
+    target_x = target.loc[:, data.columns != 'Fatigue'].values
+    target_y = target.loc[:, ['Fatigue']].values
 
     # x 特征为 15 维
     # [train_batch, num_points, x_size]
-    context_x = tf.reshape(tf.expand_dims(context_x, axis=0), [train_batch, -1, 15])
+    context_x = tf.reshape(tf.expand_dims(context_x, axis=0), [batch_size, -1, 15])
     # y 特征为 1 维
-    context_y = tf.reshape(tf.expand_dims(context_y, axis=0), [train_batch, -1, 1])
+    context_y = tf.reshape(tf.expand_dims(context_y, axis=0), [batch_size, -1, 1])
 
-    target_x = tf.reshape(tf.expand_dims(target_x, axis=0), [test_batch, -1, 15])
-    target_y = tf.reshape(tf.expand_dims(target_y, axis=0), [test_batch, -1, 1])
+    target_x = tf.reshape(tf.expand_dims(target_x, axis=0), [batch_size, -1, 15])
+    target_y = tf.reshape(tf.expand_dims(target_y, axis=0), [batch_size, -1, 1])
     query = ((context_x, context_y), target_x)
     num_total_points = tf.shape(target_x)[1]
     num_context_points = tf.shape(context_x)[1]
@@ -41,10 +62,6 @@ def dataset(train_batch, test_batch):
         num_total_points=num_total_points,
         num_context_points=num_context_points
     )
-
-    # print(context_x.shape[0] + target_x.shape[0])
-    # print(raw.loc[:, ['Fatigue']])
-    # print(raw.loc[:, raw.columns != 'Fatigue'])
 
 if __name__ == '__main__':
     print(dataset(16, 1))

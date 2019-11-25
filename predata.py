@@ -47,11 +47,15 @@ def descriptor(data, batch_size, training=True):
     # x 特征为 15 维
     # [train_batch, num_points, x_size]
     context_x = tf.reshape(tf.expand_dims(context_x, axis=0), [batch_size, -1, 15])
+    context_x = tf.cast(context_x, dtype=tf.float32)
     # y 特征为 1 维
     context_y = tf.reshape(tf.expand_dims(context_y, axis=0), [batch_size, -1, 1])
+    context_y = tf.cast(context_y, dtype=tf.float32)
 
     target_x = tf.reshape(tf.expand_dims(target_x, axis=0), [batch_size, -1, 15])
+    target_x = tf.cast(target_x, dtype=tf.float32)
     target_y = tf.reshape(tf.expand_dims(target_y, axis=0), [batch_size, -1, 1])
+    target_y = tf.cast(target_y, dtype=tf.float32)
     query = ((context_x, context_y), target_x)
     num_total_points = tf.shape(target_x)[1]
     num_context_points = tf.shape(context_x)[1]

@@ -500,7 +500,7 @@ class Hparams:
 
     parser.add_argument('--TRAINING_ITERATIONS', default=100000, type=int)
     parser.add_argument('--MAX_CONTEXT_POINTS', default=50, type=int)
-    parser.add_argument('--PLOT_AFTER', default=10, type=int)
+    parser.add_argument('--PLOT_AFTER', default=100, type=int)
     parser.add_argument('--HIDDEN_SIZE', default=128, type=int)
     parser.add_argument('--MODEL_TYPE', default='ANP')
     parser.add_argument('--ATTENTION_TYPE', default='multihead')
@@ -513,12 +513,13 @@ def train():
     tf.reset_default_graph()
 
     # 训练集
-    dataset_train = GPCurvesReader(batch_size=16, max_num_context=hp.MAX_CONTEXT_POINTS, random_kernel_parameters=hp.random_kernel_parameters)
-    data_train = dataset_train.generate_curves()
+    # dataset_train = GPCurvesReader(batch_size=16, max_num_context=hp.MAX_CONTEXT_POINTS, random_kernel_parameters=hp.random_kernel_parameters)
+    # data_train = dataset_train.generate_curves()
 
     # 测试集
-    dataset_test = GPCurvesReader(batch_size=1, max_num_context=hp.MAX_CONTEXT_POINTS, testing=True, random_kernel_parameters=hp.random_kernel_parameters)
-    data_test = dataset_test.generate_curves()
+    # dataset_test = GPCurvesReader(batch_size=1, max_num_context=hp.MAX_CONTEXT_POINTS, testing=True, random_kernel_parameters=hp.random_kernel_parameters)
+    # data_test = dataset_test.generate_curves()
+    data_train, data_test = predata.dataset(train_batch=16, test_batch=1)
 
     # with tf.Session() as sess:
     #     (context_x, context_y), target_x = sess.run(data_train).query
@@ -544,7 +545,8 @@ def train():
     mu, sigma, _, _, _ = model(data_test.query, data_test.num_total_points)
 
     # 优化器与训练步骤
-    optimizer = tf.train.AdamOptimizer(1e-4)
+    # optimizer = tf.train.AdamOptimizer(1e-4)
+    optimizer = tf.train.MomentumOptimizer(learning_rate=1e-7, momentum=0.5)
     train_step = optimizer.minimize(loss)
     init = tf.global_variables_initializer()
 

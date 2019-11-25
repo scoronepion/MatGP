@@ -498,7 +498,7 @@ def plot_functions(target_x, target_y, context_x, context_y, pred_y, std):
 class Hparams:
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--TRAINING_ITERATIONS', default=100000, type=int)
+    parser.add_argument('--TRAINING_ITERATIONS', default=1000000, type=int)
     parser.add_argument('--MAX_CONTEXT_POINTS', default=50, type=int)
     parser.add_argument('--PLOT_AFTER', default=100, type=int)
     parser.add_argument('--HIDDEN_SIZE', default=128, type=int)

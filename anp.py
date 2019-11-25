@@ -502,7 +502,7 @@ class Hparams:
     parser.add_argument('--TRAINING_ITERATIONS', default=1000000, type=int)
     parser.add_argument('--MAX_CONTEXT_POINTS', default=50, type=int)
     parser.add_argument('--PLOT_AFTER', default=100, type=int)
-    parser.add_argument('--HIDDEN_SIZE', default=128, type=int)
+    parser.add_argument('--HIDDEN_SIZE', default=64, type=int)
     parser.add_argument('--MODEL_TYPE', default='ANP')
     parser.add_argument('--ATTENTION_TYPE', default='multihead')
     parser.add_argument('--random_kernel_parameters', default=True)
@@ -550,8 +550,10 @@ def train():
     # optimizer = tf.train.MomentumOptimizer(learning_rate=1e-8, momentum=0.5)
     train_step = optimizer.minimize(loss)
     init = tf.global_variables_initializer()
+    # 显存按需分配
+    gpu_options = tf.GPUOptions(allow_growth=True)
 
-    with tf.Session() as sess:
+    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
         sess.run(init)
 

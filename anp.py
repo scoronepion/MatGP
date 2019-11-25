@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import collections
 import argparse
 import predata
+from sklearn.metrics import r2_score
 from tensorflow.python import debug as tf_debug
 
 # 数据生成
@@ -545,8 +546,8 @@ def train():
     mu, sigma, _, _, _ = model(data_test.query, data_test.num_total_points)
 
     # 优化器与训练步骤
-    # optimizer = tf.train.AdamOptimizer(1e-4)
-    optimizer = tf.train.MomentumOptimizer(learning_rate=1e-7, momentum=0.5)
+    optimizer = tf.train.AdamOptimizer(1e-4)
+    # optimizer = tf.train.MomentumOptimizer(learning_rate=1e-8, momentum=0.5)
     train_step = optimizer.minimize(loss)
     init = tf.global_variables_initializer()
 
@@ -561,8 +562,10 @@ def train():
             if it % hp.PLOT_AFTER == 0:
                 loss_value, pred_y, std_y, target_y, whole_query = sess.run([loss, mu, sigma, data_test.target_y, data_test.query])
                 (context_x, context_y), target_x = whole_query
-                print('Iteration: {}, loss: {}'.format(it, loss_value))
-
+                target_y = sess.run(tf.squeeze(target_y))
+                pred_y = sess.run(tf.squeeze(pred_y))
+                r2 = r2_score(target_y, pred_y)
+                print('Iteration: {}, loss: {}, r2: {}'.format(it, loss_value, r2))
                 # plot_functions(target_x, target_y, context_x, context_y, pred_y, std_y)
 
 train()
